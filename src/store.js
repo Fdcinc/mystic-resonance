@@ -116,7 +116,7 @@ const useStore = create(
       connectWallet: async () => {
         if (!window.ethereum) return alert("Please install MetaMask!");
         try {
-          const provider = new ethers.BrowserProvider(window.ethereum);
+          const provider = new ethers.providers.Web3Provider(window.ethereum);
           const accounts = await provider.send("eth_requestAccounts", []);
           set({ walletAddress: accounts[0] });
           await get().syncWithBlockchain();
@@ -131,7 +131,7 @@ const useStore = create(
 
         set({ isSyncing: true });
         try {
-          const provider = new ethers.BrowserProvider(window.ethereum);
+          const provider = new ethers.providers.Web3Provider(window.ethereum);
           const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
           const data = await contract.players(address);
           
@@ -173,7 +173,7 @@ const useStore = create(
         
         if (state.walletAddress && window.ethereum) {
           try {
-            const provider = new ethers.BrowserProvider(window.ethereum);
+            const provider = new ethers.providers.Web3Provider(window.ethereum);
             const signer = await provider.getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
             
@@ -204,7 +204,7 @@ const useStore = create(
         // --- WEB3 TRANSACTION ---
         if (state.walletAddress && window.ethereum) {
           try {
-            const provider = new ethers.BrowserProvider(window.ethereum);
+            const provider = new ethers.providers.Web3Provider(window.ethereum);
             const signer = await provider.getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
             
