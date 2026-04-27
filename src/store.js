@@ -10,7 +10,7 @@ const SYNERGY_BONUS_MANA = 5;
 
 // --- WEB3 CONFIGURATION ---
 // Replace this with your actual contract address after deployment
-const CONTRACT_ADDRESS = "0x8F43f4Ff504E18b2b60733a03A87B78122077B77"; 
+const CONTRACT_ADDRESS = "0xAF36B7c69ae55C2540BdcC6cc22B6fc1927Bfc52"; 
 const CONTRACT_ABI = [
   "function castSpell(uint256 _currentZodiac) external",
   "function players(address) view returns (uint256 mana, uint256 lastRegenTime, uint256 score, uint256 curseEndTime)"
