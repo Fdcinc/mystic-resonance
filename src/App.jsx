@@ -18,13 +18,17 @@ export default function App() {
   // Local UI state (Theme toggle)
   const [isDarkMode, setIsDarkMode] = React.useState(true);
 
-  // Mana regeneration effect - calls the store action every second
+  // ✅ Fixed: Sync mana periodically by reading from contract (read-only, no gas)
   React.useEffect(() => {
-    const interval = setInterval(() => {
-      s.regenMana();
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [s]);
+  if (!s.walletAddress) return;
+  
+  const syncInterval = setInterval(() => {
+    s.syncWithBlockchain();
+  }, 10000);
+  
+  return () => clearInterval(syncInterval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [s.walletAddress]); // ✅ Include both dependencies
 
   // Determine layout order based on the current Zodiac count
   const isZodiacFirst = s.count % 2 === 0;
@@ -81,6 +85,19 @@ export default function App() {
         </div>
         
         <ManaBar mana={s.mana} maxMana={100} isDark={isDarkMode} />
+        
+        {/* Manual Regen Button */}
+        <button
+          onClick={s.regenMana}
+          disabled={s.mana >= 100 || s.isSyncing}
+          className={`px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+            s.mana >= 100 
+              ? 'bg-gray-500/20 text-gray-400 cursor-not-allowed'
+              : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+          }`}
+        >
+          🌙 REGEN MANA
+        </button>
         
         {s.comboCount >= 2 && (
           <div className="px-4 py-2 bg-orange-500/30 rounded-full text-orange-400 border border-orange-500/50 font-mono animate-bounce font-bold">

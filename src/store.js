@@ -9,11 +9,11 @@ const COMBO_WINDOW_MS = 5000;
 const SYNERGY_BONUS_MANA = 5;
 
 // --- WEB3 CONFIGURATION ---
-// Replace this with your actual contract address after deployment
 const CONTRACT_ADDRESS = "0x0eB6Aa521fF9f0D48F4a87FF50063445da4dBA52"; 
 const CONTRACT_ABI = [
   "function castSpell(uint256 _currentZodiac) external",
-  "function players(address) view returns (uint256 mana, uint256 lastRegenTime, uint256 score)"
+  "function players(address) view returns (uint256 mana, uint256 lastRegenTime, uint256 score)",
+  "function regenMana() external"
 ];
 
 const fortunes = [
@@ -56,6 +56,7 @@ const useStore = create(
       quests: questsDefinitions.map(q => ({ ...q })),
       past: [],
       future: [],
+      lastRegenCall: 0, // Track last regen call for throttling
 
       // --- WEB3 STATE ---
       walletAddress: null,
@@ -118,7 +119,7 @@ const useStore = create(
           const provider = new ethers.BrowserProvider(window.ethereum);
           const accounts = await provider.send("eth_requestAccounts", []);
           set({ walletAddress: accounts[0] });
-          get().syncWithBlockchain();
+          await get().syncWithBlockchain();
         } catch (err) {
           console.error("Wallet connection failed", err);
         }
@@ -139,6 +140,7 @@ const useStore = create(
             score: Number(data[2]),
             isSyncing: false 
           });
+          console.log(`🔄 Synced: Mana=${data[0]}, Score=${data[2]}`);
         } catch (e) {
           console.error("Blockchain sync failed", e);
           set({ isSyncing: false });
@@ -152,11 +154,49 @@ const useStore = create(
       setLegacyToggle: (val) => get()._setWithHistory({ legacyToggle: val }),
       setLegacyText: (val) => get()._setWithHistory({ legacyText: typeof val === 'function' ? val(get().legacyText) : val }),
       
-      regenMana: () => {
-        const newMana = Math.min(get().mana + 1, MAX_MANA);
-        set({ mana: newMana });
+      // Updated: Calls blockchain regenMana with throttling
+      regenMana: async () => {
+        const state = get();
+        
+        // Don't call if mana is already full
+        if (state.mana >= MAX_MANA) {
+          console.log("💚 Mana full, skipping regen");
+          return;
+        }
+        
+        // Throttle: Don't call more than once every 30 seconds
+        const now = Date.now();
+        if (state.lastRegenCall && (now - state.lastRegenCall) < 30000) {
+          console.log("⏳ Regen throttled (30s cooldown), skipping");
+          return;
+        }
+        
+        if (state.walletAddress && window.ethereum) {
+          try {
+            const provider = new ethers.BrowserProvider(window.ethereum);
+            const signer = await provider.getSigner();
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+            
+            console.log("🌙 Calling blockchain regenMana...");
+            const tx = await contract.regenMana();
+            await tx.wait();
+            console.log("✅ Mana regenerated on chain! Tx:", tx.hash);
+            
+            set({ lastRegenCall: now });
+            await get().syncWithBlockchain();
+            
+          } catch (e) {
+            console.error("Blockchain regen failed", e);
+            const newMana = Math.min(state.mana + 1, MAX_MANA);
+            set({ mana: newMana, lastRegenCall: now });
+          }
+        } else {
+          const newMana = Math.min(state.mana + 1, MAX_MANA);
+          set({ mana: newMana, lastRegenCall: now });
+        }
       },
 
+      // Updated: Sync after casting spell (no unused variables)
       castSpell: async () => {
         const state = get();
         if (state.mana < MANA_COST) return;
@@ -169,30 +209,47 @@ const useStore = create(
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
             
             const currentZodiac = Math.abs(state.count) % 12;
+            console.log(`🔮 Casting spell with zodiac ${currentZodiac}...`);
             const tx = await contract.castSpell(currentZodiac);
             
             set({ synergyMessage: "🌌 Calling upon the Blockchain Oracle..." });
-            await tx.wait(); // Wait for confirmation
+            await tx.wait();
+            console.log("✅ Spell cast on chain! Tx:", tx.hash);
+            
+            await get().syncWithBlockchain();
+            
           } catch (e) {
             console.error("Spell transaction cancelled or failed", e);
             return; 
           }
         }
 
-        // --- LOCAL LOGIC (UI UPDATES) ---
-        let m = state.mana - MANA_COST;
+        // Get updated state after potential blockchain sync
+        const updatedState = get();
+        
+        // --- LOCAL LOGIC (UI UPDATES for fortunes, combos, etc.) ---
+        let m = updatedState.mana - MANA_COST;
         const now = Date.now();
-        const combo = state.lastCastTime && (now - state.lastCastTime) < COMBO_WINDOW_MS ? state.comboCount + 1 : 1;
+        const combo = updatedState.lastCastTime && (now - updatedState.lastCastTime) < COMBO_WINDOW_MS ? updatedState.comboCount + 1 : 1;
 
-        if (state.synergyMessage.includes("Blessing")) m = Math.min(m + SYNERGY_BONUS_MANA, MAX_MANA);
+        // Apply blessing bonus if active
+        if (updatedState.synergyMessage && updatedState.synergyMessage.includes("Blessing")) {
+          m = Math.min(m + SYNERGY_BONUS_MANA, MAX_MANA);
+        }
 
-        const seed = Math.abs(state.count) % 12 + state.text.length + state.legacyCount + (state.legacyToggle ? 10 : 0);
+        const seed = Math.abs(updatedState.count) % 12 + updatedState.text.length + updatedState.legacyCount + (updatedState.legacyToggle ? 10 : 0);
         let fort = combo >= 3 ? comboFortunes[seed % comboFortunes.length] : fortunes[seed % fortunes.length];
 
-        if (state.synergyMessage.includes("Curse")) fort = fort.split('').reverse().join('');
+        if (updatedState.synergyMessage && updatedState.synergyMessage.includes("Curse")) {
+          fort = fort.split('').reverse().join('');
+        }
 
         get()._setWithHistory({
-          mana: m, comboCount: combo, lastCastTime: now, score: state.score + 1, fortune: fort
+          mana: m, 
+          comboCount: combo, 
+          lastCastTime: now, 
+          score: updatedState.score + 1, 
+          fortune: fort
         });
       },
 
@@ -207,14 +264,13 @@ const useStore = create(
         count: 0, text: '', legacyCount: 0, legacyToggle: true, legacyText: '',
         score: 0, mana: 50, fortune: '', comboCount: 0, lastCastTime: null,
         visitedSigns: new Set(), quests: questsDefinitions.map(q => ({ ...q })),
-        past: [], future: [], synergyMessage: '', walletAddress: null
+        past: [], future: [], synergyMessage: '', walletAddress: null, lastRegenCall: 0
       }),
     }),
     {
       name: 'mystic-resonance-game',
       partialize: (state) => {
-        // Exclude huge history arrays and temporary Web3 state from local storage
-        const { past: _p, future: _f, isSyncing: _s, visitedSigns: _vs, ...rest } = state;
+        const { past: _p, future: _f, isSyncing: _s, visitedSigns: _vs, lastRegenCall: _l, ...rest } = state;
         return { ...rest, visitedSigns: Array.from(_vs || []) };
       },
       onRehydrateStorage: () => (state) => {
